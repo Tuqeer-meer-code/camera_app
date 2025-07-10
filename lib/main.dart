@@ -141,54 +141,54 @@ class _CameraWithDirectionState extends State<CameraWithDirection> {
                       child: Stack(
                         alignment: Alignment.center,
                         children: [
-                          // Compass dial
-                          Container(
-                            width: 130,
-                            height: 130,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              gradient: RadialGradient(
-                                colors: [
-                                  Colors.black.withOpacity(0.8),
-                                  Colors.grey[900]!,
-                                  Colors.black,
-                                ],
-                                radius: 0.9,
-                              ),
-                              border: Border.all(color: Colors.white24, width: 2),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black54,
-                                  blurRadius: 16,
-                                  offset: Offset(0, 6),
-                                ),
-                              ],
-                            ),
-                            child: CustomPaint(
-                              painter: _CompassDialPainter(small: true),
-                            ),
-                          ),
-                          // Rotating needle
+                          // Rotating compass dial
                           Transform.rotate(
                             angle: -(_degree * (math.pi / 180)),
                             child: Container(
-                              width: 100,
-                              height: 100,
-                              alignment: Alignment.topCenter,
-                              child: Container(
-                                width: 5,
-                                height: 50,
-                                decoration: BoxDecoration(
-                                  color: Colors.redAccent,
-                                  borderRadius: BorderRadius.circular(3),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.redAccent.withOpacity(0.5),
-                                      blurRadius: 8,
-                                      offset: Offset(0, 2),
-                                    ),
+                              width: 130,
+                              height: 130,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                gradient: RadialGradient(
+                                  colors: [
+                                    Colors.black.withOpacity(0.8),
+                                    Colors.grey[900]!,
+                                    Colors.black,
                                   ],
+                                  radius: 0.9,
                                 ),
+                                border: Border.all(color: Colors.white24, width: 2),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black54,
+                                    blurRadius: 16,
+                                    offset: Offset(0, 6),
+                                  ),
+                                ],
+                              ),
+                              child: CustomPaint(
+                                painter: _CompassDialPainter(small: true),
+                              ),
+                            ),
+                          ),
+                          // Fixed needle (always down)
+                          Container(
+                            width: 100,
+                            height: 100,
+                            alignment: Alignment.bottomCenter, // changed from topCenter
+                            child: Container(
+                              width: 5,
+                              height: 50,
+                              decoration: BoxDecoration(
+                                color: Colors.redAccent,
+                                borderRadius: BorderRadius.circular(3),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.redAccent.withOpacity(0.5),
+                                    blurRadius: 8,
+                                    offset: Offset(0, 2),
+                                  ),
+                                ],
                               ),
                             ),
                           ),
