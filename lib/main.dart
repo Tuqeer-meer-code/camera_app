@@ -5,6 +5,9 @@ import 'package:permission_handler/permission_handler.dart';
 import 'dart:math' as math;
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
+import 'dart:ui' as ui;
+import 'dart:typed_data';
+import 'package:flutter/rendering.dart';
 
 void main() => runApp(const MyApp());
 
@@ -31,6 +34,13 @@ class _CameraWithDirectionState extends State<CameraWithDirection> {
   bool _permissionsGranted = false;
   double _compassOpacity = 0.5;
 
+  // Key for RepaintBoundary
+  final GlobalKey _previewContainerKey = GlobalKey();
+  // Path of the last captured image
+  String? _lastCapturedImagePath;
+  // Whether to trigger compositing
+  bool _shouldComposite = false;
+
   @override
   void initState() {
     super.initState();
@@ -52,11 +62,11 @@ class _CameraWithDirectionState extends State<CameraWithDirection> {
         if (heading == null) return;
         double normalizedHeading = (heading < 0) ? (heading + 360) : heading;
         int index = ((normalizedHeading + 22.5) / 45).floor() % 8;
-        setState(() {
-          _direction = _directions[index];
+      setState(() {
+        _direction = _directions[index];
           _degree = normalizedHeading;
-        });
       });
+    });
     } else {
       setState(() {
         _permissionsGranted = false;
@@ -108,7 +118,7 @@ class _CameraWithDirectionState extends State<CameraWithDirection> {
               ),
             )
           : Stack(
-              children: [
+        children: [
                 // Camera preview background
                 _controller == null
                     ? const Center(child: CircularProgressIndicator())
@@ -129,10 +139,41 @@ class _CameraWithDirectionState extends State<CameraWithDirection> {
                           }
                         },
                       ),
-                // Compass UI overlay at top right with opacity
+                // Hidden RepaintBoundary for compositing
+                Offstage(
+                  offstage: !_shouldComposite || _lastCapturedImagePath == null,
+                  child: RepaintBoundary(
+                    key: _previewContainerKey,
+                    child: _lastCapturedImagePath == null
+                        ? const SizedBox.shrink()
+                        : Stack(
+                            fit: StackFit.passthrough,
+                            children: [
+                              Image.file(File(_lastCapturedImagePath!)),
+          Positioned(
+                                bottom: 40,
+            left: 20,
+            child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              color: Colors.black54,
+              child: Text(
+                                    '$_direction ${_degree.toStringAsFixed(0)}°',
+                style: const TextStyle(
+                  color: Colors.white,
+                                      fontSize: 32,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+                            ],
+                          ),
+                  ),
+                ),
+                // Compass UI overlay at bottom left with opacity and padding above slider
                 Positioned(
-                  top: 40,
-                  right: 24,
+                  bottom: 30,
+                  left: 24,
                   child: Opacity(
                     opacity: _compassOpacity,
                     child: SizedBox(
@@ -171,11 +212,11 @@ class _CameraWithDirectionState extends State<CameraWithDirection> {
                               ),
                             ),
                           ),
-                          // Fixed needle (always down)
+                          // Fixed needle (always up, at top)
                           Container(
                             width: 100,
                             height: 100,
-                            alignment: Alignment.bottomCenter, // changed from topCenter
+                            alignment: Alignment.topCenter,
                             child: Container(
                               width: 5,
                               height: 50,
@@ -230,7 +271,7 @@ class _CameraWithDirectionState extends State<CameraWithDirection> {
                 ),
                 // Opacity slider at the bottom
                 Positioned(
-                  left: 24,
+                  left: MediaQuery.of(context).size.width*0.4,
                   right: 24,
                   bottom: 110,
                   child: Row(
@@ -268,15 +309,32 @@ class _CameraWithDirectionState extends State<CameraWithDirection> {
                             final String dirPath = '${extDir.path}/Pictures';
                             await Directory(dirPath).create(recursive: true);
                             final String filePath = '$dirPath/${DateTime.now().millisecondsSinceEpoch}.jpg';
-                            await _controller!.takePicture().then((XFile file) async {
-                              await file.saveTo(filePath);
-                              if (mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text('Photo saved to $filePath')),
-                                );
-                              }
+                            final XFile file = await _controller!.takePicture();
+                            setState(() {
+                              _lastCapturedImagePath = file.path;
+                              _shouldComposite = true;
                             });
+                            // Wait for the widget to build
+                            await Future.delayed(const Duration(milliseconds: 100));
+                            RenderRepaintBoundary boundary = _previewContainerKey.currentContext!.findRenderObject() as RenderRepaintBoundary;
+                            var image = await boundary.toImage(pixelRatio: 3.0);
+                            ByteData? byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+                            Uint8List pngBytes = byteData!.buffer.asUint8List();
+                            File(filePath).writeAsBytesSync(pngBytes);
+                            setState(() {
+                              _shouldComposite = false;
+                            });
+                            if (mounted) {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (context) => ImagePreviewScreen(imagePath: filePath),
+                                ),
+                              );
+                            }
                           } catch (e) {
+                            setState(() {
+                              _shouldComposite = false;
+                            });
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(content: Text('Error: $e')),
                             );
@@ -351,4 +409,24 @@ class _CompassDialPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+// Add the image preview screen
+class ImagePreviewScreen extends StatelessWidget {
+  final String imagePath;
+  const ImagePreviewScreen({Key? key, required this.imagePath}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Image Preview'),
+        backgroundColor: Colors.black,
+      ),
+      backgroundColor: Colors.black,
+      body: Center(
+        child: Image.file(File(imagePath)),
+      ),
+    );
+  }
 }
