@@ -20,7 +20,10 @@ class MyApp extends StatelessWidget {
 }
 
 class CameraWithDirection extends StatefulWidget {
-  const CameraWithDirection({super.key});
+  const CameraWithDirection({super.key, this.onPictureTaken});
+
+  final void Function(XFile?, String, double)? onPictureTaken;
+
   @override
   State<CameraWithDirection> createState() => _CameraWithDirectionState();
 }
@@ -110,7 +113,7 @@ class _CameraWithDirectionState extends State<CameraWithDirection> {
                         bottom: 30,
                         left: 24,
                         child: Opacity(
-                          opacity: _compassOpacity,
+                          opacity: 0.5, // Hardcoded to 50% opacity
                           child: SizedBox(
                             width: 140,
                             height: 140,
@@ -162,21 +165,6 @@ class _CameraWithDirectionState extends State<CameraWithDirection> {
                   ),
                 ),
 
-                // Opacity Slider
-                Positioned(
-                  left: MediaQuery.of(context).size.width * 0.4,
-                  right: 24,
-                  bottom: 110,
-                  child: Row(
-                    children: [
-                      const Icon(Icons.explore, color: Colors.white70),
-                      Expanded(
-                        child: Slider(value: _compassOpacity, min: 0.0, max: 1.0, divisions: 20, label: '${(_compassOpacity * 100).toInt()}%', onChanged: (value) => setState(() => _compassOpacity = value)),
-                      ),
-                    ],
-                  ),
-                ),
-
                 // Capture Button
                 Positioned(
                   bottom: 40,
@@ -214,7 +202,6 @@ class _CameraWithDirectionState extends State<CameraWithDirection> {
     try {
       if (_controller == null || !_controller!.value.isInitialized) return;
       showDialog(
-        
         barrierDismissible: false,
         context: context,
         builder: (context) {
@@ -230,38 +217,34 @@ class _CameraWithDirectionState extends State<CameraWithDirection> {
               child: SizedBox(
                 width: 100,
                 height: 100,
-                child: CircularProgressIndicator( 
-                )),
+                child: CircularProgressIndicator(),
+              ),
             ),
           );
         },
       );
-      await _controller!.takePicture(); // capture, just to keep sync
-
-      RenderRepaintBoundary boundary = _previewContainerKey.currentContext!.findRenderObject() as RenderRepaintBoundary;
-      final image = await boundary.toImage(pixelRatio: 3.0);
-      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-      final Uint8List pngBytes = byteData!.buffer.asUint8List();
-
+      // Capture the image
+      final XFile capturedFile = await _controller!.takePicture();
       final Directory dir = await getTemporaryDirectory();
-      final String path = '${dir.path}/compass_capture_${DateTime.now().millisecondsSinceEpoch}.png';
-      File(path).writeAsBytesSync(pngBytes);
-      final file = File(path);
+      final String filePath = '${dir.path}/capture_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      await File(filePath).writeAsBytes(await capturedFile.readAsBytes());
       Navigator.pop(context);
       if (mounted) {
-        showDialog(
-          context: context,
-          builder: (context) {
-            return SizedBox(width: MediaQuery.of(context).size.width, height: MediaQuery.of(context).size.height * 0.8, child: Image.file(file));
-          },
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Photo saved to $filePath')),
         );
-        //     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Captured image saved to $path')));
+        // Call the callback with the result
+        widget.onPictureTaken?.call(
+          File(filePath).existsSync() ? XFile(filePath) : null,
+          _direction,
+          _degree,
+        );
       }
-    } catch (e) {      Navigator.pop(context);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
-      }
+    } catch (e) {
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e')),
+      );
     }
   }
 }
