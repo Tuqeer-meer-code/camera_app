@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_compass/flutter_compass.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:math' as math;
@@ -7,7 +8,6 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'dart:ui' as ui;
 import 'dart:typed_data';
-import 'package:flutter/rendering.dart';
 
 void main() => runApp(const MyApp());
 
@@ -34,12 +34,7 @@ class _CameraWithDirectionState extends State<CameraWithDirection> {
   bool _permissionsGranted = false;
   double _compassOpacity = 0.5;
 
-  // Key for RepaintBoundary
   final GlobalKey _previewContainerKey = GlobalKey();
-  // Path of the last captured image
-  String? _lastCapturedImagePath;
-  // Whether to trigger compositing
-  bool _shouldComposite = false;
 
   @override
   void initState() {
@@ -48,42 +43,32 @@ class _CameraWithDirectionState extends State<CameraWithDirection> {
   }
 
   Future<void> _requestPermissions() async {
-    final statuses = await [
-      Permission.camera,
-      Permission.locationWhenInUse,
-    ].request();
+    final statuses = await [Permission.camera, Permission.locationWhenInUse].request();
+
     if (statuses[Permission.camera]!.isGranted && statuses[Permission.locationWhenInUse]!.isGranted) {
-      setState(() {
-        _permissionsGranted = true;
-      });
+      setState(() => _permissionsGranted = true);
       _initCamera();
+
       FlutterCompass.events?.listen((event) {
         final heading = event.heading;
         if (heading == null) return;
         double normalizedHeading = (heading < 0) ? (heading + 360) : heading;
         int index = ((normalizedHeading + 22.5) / 45).floor() % 8;
-      setState(() {
-        _direction = _directions[index];
+        setState(() {
+          _direction = _directions[index];
           _degree = normalizedHeading;
+        });
       });
-    });
     } else {
-      setState(() {
-        _permissionsGranted = false;
-      });
+      setState(() => _permissionsGranted = false);
     }
   }
 
   Future<void> _initCamera() async {
     final cameras = await availableCameras();
-    final backCamera = cameras.firstWhere(
-      (camera) => camera.lensDirection == CameraLensDirection.back,
-    );
-    _controller = CameraController(
-      backCamera,
-      ResolutionPreset.high,
-      enableAudio: false,
-    );
+    final backCamera = cameras.firstWhere((camera) => camera.lensDirection == CameraLensDirection.back);
+
+    _controller = CameraController(backCamera, ResolutionPreset.high, enableAudio: false);
     _initializeControllerFuture = _controller!.initialize();
     if (mounted) setState(() {});
   }
@@ -99,202 +84,100 @@ class _CameraWithDirectionState extends State<CameraWithDirection> {
     return Scaffold(
       backgroundColor: Colors.black,
       body: !_permissionsGranted
-          ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.lock, color: Colors.white54, size: 60),
-                  const SizedBox(height: 20),
-                  const Text(
-                    'Camera & Location permissions required',
-                    style: TextStyle(color: Colors.white70, fontSize: 18),
-                  ),
-                  const SizedBox(height: 20),
-                  ElevatedButton(
-                    onPressed: _requestPermissions,
-                    child: const Text('Grant Permissions'),
-                  ),
-                ],
-              ),
-            )
+          ? _buildPermissionRequestUI()
           : Stack(
-        children: [
-                // Camera preview background
-                _controller == null
-                    ? const Center(child: CircularProgressIndicator())
-                    : FutureBuilder<void>(
-                        future: _initializeControllerFuture,
-                        builder: (context, snapshot) {
-                          if (snapshot.connectionState == ConnectionState.done) {
-                            return FittedBox(
-                              fit: BoxFit.cover,
-                              child: SizedBox(
-                                width: MediaQuery.of(context).size.width,
-                                height: MediaQuery.of(context).size.height,
-                                child: CameraPreview(_controller!),
-                              ),
-                            );
-                          } else {
-                            return const Center(child: CircularProgressIndicator());
-                          }
-                        },
-                      ),
-                // Hidden RepaintBoundary for compositing
-                Offstage(
-                  offstage: !_shouldComposite || _lastCapturedImagePath == null,
-                  child: RepaintBoundary(
-                    key: _previewContainerKey,
-                    child: _lastCapturedImagePath == null
-                        ? const SizedBox.shrink()
-                        : Stack(
-                            fit: StackFit.passthrough,
-                            children: [
-                              Image.file(File(_lastCapturedImagePath!)),
-          Positioned(
-                                bottom: 40,
-            left: 20,
-            child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              color: Colors.black54,
-              child: Text(
-                                    '$_direction ${_degree.toStringAsFixed(0)}°',
-                style: const TextStyle(
-                  color: Colors.white,
-                                      fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ),
-                            ],
-                          ),
-                  ),
-                ),
-                // Compass UI overlay at bottom left with opacity and padding above slider
-                Positioned(
-                  bottom: 30,
-                  left: 24,
-                  child: Opacity(
-                    opacity: _compassOpacity,
-                    child: SizedBox(
-                      width: 140,
-                      height: 140,
-                      child: Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          // Rotating compass dial
-                          Transform.rotate(
-                            angle: -(_degree * (math.pi / 180)),
-                            child: Container(
-                              width: 130,
-                              height: 130,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                gradient: RadialGradient(
-                                  colors: [
-                                    Colors.black.withOpacity(0.8),
-                                    Colors.grey[900]!,
-                                    Colors.black,
-                                  ],
-                                  radius: 0.9,
-                                ),
-                                border: Border.all(color: Colors.white24, width: 2),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black54,
-                                    blurRadius: 16,
-                                    offset: Offset(0, 6),
-                                  ),
-                                ],
-                              ),
-                              child: CustomPaint(
-                                painter: _CompassDialPainter(small: true),
-                              ),
+              children: [
+                // RepaintBoundary that includes both camera and compass overlay
+                RepaintBoundary(
+                  key: _previewContainerKey,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      _controller == null
+                          ? const Center(child: CircularProgressIndicator())
+                          : FutureBuilder<void>(
+                              future: _initializeControllerFuture,
+                              builder: (context, snapshot) {
+                                if (snapshot.connectionState == ConnectionState.done) {
+                                  return CameraPreview(_controller!);
+                                } else {
+                                  return const Center(child: CircularProgressIndicator());
+                                }
+                              },
                             ),
-                          ),
-                          // Fixed needle (always up, at top)
-                          Container(
-                            width: 100,
-                            height: 100,
-                            alignment: Alignment.topCenter,
-                            child: Container(
-                              width: 5,
-                              height: 50,
-                              decoration: BoxDecoration(
-                                color: Colors.redAccent,
-                                borderRadius: BorderRadius.circular(3),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.redAccent.withOpacity(0.5),
-                                    blurRadius: 8,
-                                    offset: Offset(0, 2),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          // Center degree and direction
-                          Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                '${_degree.toStringAsFixed(0)}°',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.bold,
-                                  shadows: [
-                                    Shadow(
-                                      blurRadius: 8,
-                                      color: Colors.black45,
-                                      offset: Offset(2, 2),
+                      // Compass Overlay
+                      Positioned(
+                        bottom: 30,
+                        left: 24,
+                        child: Opacity(
+                          opacity: _compassOpacity,
+                          child: SizedBox(
+                            width: 140,
+                            height: 140,
+                            child: Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                Transform.rotate(
+                                  angle: -(_degree * (math.pi / 180)),
+                                  child: Container(
+                                    width: 130,
+                                    height: 130,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      gradient: RadialGradient(colors: [Colors.black.withOpacity(0.8), Colors.grey[900]!, Colors.black], radius: 0.9),
+                                      border: Border.all(color: Colors.white24, width: 2),
                                     ),
+                                    child: CustomPaint(painter: _CompassDialPainter(small: true)),
+                                  ),
+                                ),
+                                // Needle
+                                Container(
+                                  width: 100,
+                                  height: 100,
+                                  alignment: Alignment.topCenter,
+                                  child: Container(
+                                    width: 5,
+                                    height: 50,
+                                    decoration: BoxDecoration(color: Colors.redAccent, borderRadius: BorderRadius.circular(3)),
+                                  ),
+                                ),
+                                // Text
+                                Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      '${_degree.toStringAsFixed(0)}°',
+                                      style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(_direction, style: const TextStyle(color: Colors.white70, fontSize: 16, letterSpacing: 2)),
                                   ],
                                 ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                _direction,
-                                style: const TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w500,
-                                  letterSpacing: 2,
-                                ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
-                        ],
+                        ),
                       ),
-                    ),
+                    ],
                   ),
                 ),
-                // Opacity slider at the bottom
+
+                // Opacity Slider
                 Positioned(
-                  left: MediaQuery.of(context).size.width*0.4,
+                  left: MediaQuery.of(context).size.width * 0.4,
                   right: 24,
                   bottom: 110,
                   child: Row(
                     children: [
                       const Icon(Icons.explore, color: Colors.white70),
                       Expanded(
-                        child: Slider(
-                          value: _compassOpacity,
-                          min: 0.0,
-                          max: 1.0,
-                          divisions: 20,
-                          label: '${(_compassOpacity * 100).toInt()}%',
-                          onChanged: (value) {
-                            setState(() {
-                              _compassOpacity = value;
-                            });
-                          },
-                        ),
+                        child: Slider(value: _compassOpacity, min: 0.0, max: 1.0, divisions: 20, label: '${(_compassOpacity * 100).toInt()}%', onChanged: (value) => setState(() => _compassOpacity = value)),
                       ),
                     ],
                   ),
                 ),
-                // Capture button at the bottom center
+
+                // Capture Button
                 Positioned(
                   bottom: 40,
                   left: 0,
@@ -302,45 +185,7 @@ class _CameraWithDirectionState extends State<CameraWithDirection> {
                   child: Center(
                     child: FloatingActionButton(
                       backgroundColor: Colors.white,
-                      onPressed: () async {
-                        if (_controller != null && _controller!.value.isInitialized) {
-                          try {
-                            final Directory extDir = await getTemporaryDirectory();
-                            final String dirPath = '${extDir.path}/Pictures';
-                            await Directory(dirPath).create(recursive: true);
-                            final String filePath = '$dirPath/${DateTime.now().millisecondsSinceEpoch}.jpg';
-                            final XFile file = await _controller!.takePicture();
-                            setState(() {
-                              _lastCapturedImagePath = file.path;
-                              _shouldComposite = true;
-                            });
-                            // Wait for the widget to build
-                            await Future.delayed(const Duration(milliseconds: 100));
-                            RenderRepaintBoundary boundary = _previewContainerKey.currentContext!.findRenderObject() as RenderRepaintBoundary;
-                            var image = await boundary.toImage(pixelRatio: 3.0);
-                            ByteData? byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-                            Uint8List pngBytes = byteData!.buffer.asUint8List();
-                            File(filePath).writeAsBytesSync(pngBytes);
-                            setState(() {
-                              _shouldComposite = false;
-                            });
-                            if (mounted) {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (context) => ImagePreviewScreen(imagePath: filePath),
-                                ),
-                              );
-                            }
-                          } catch (e) {
-                            setState(() {
-                              _shouldComposite = false;
-                            });
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Error: $e')),
-                            );
-                          }
-                        }
-                      },
+                      onPressed: _captureImageWithCompass,
                       child: const Icon(Icons.camera_alt, size: 32, color: Colors.black),
                     ),
                   ),
@@ -349,12 +194,83 @@ class _CameraWithDirectionState extends State<CameraWithDirection> {
             ),
     );
   }
+
+  Widget _buildPermissionRequestUI() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.lock, color: Colors.white54, size: 60),
+          const SizedBox(height: 20),
+          const Text('Camera & Location permissions required', style: TextStyle(color: Colors.white70, fontSize: 18)),
+          const SizedBox(height: 20),
+          ElevatedButton(onPressed: _requestPermissions, child: const Text('Grant Permissions')),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _captureImageWithCompass() async {
+    try {
+      if (_controller == null || !_controller!.value.isInitialized) return;
+      showDialog(
+        
+        barrierDismissible: false,
+        context: context,
+        builder: (context) {
+          return Container(
+            width: 400,
+            height: 400,
+            padding: EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              color: Colors.white
+            ),
+            child: Center(
+              child: SizedBox(
+                width: 100,
+                height: 100,
+                child: CircularProgressIndicator( 
+                )),
+            ),
+          );
+        },
+      );
+      await _controller!.takePicture(); // capture, just to keep sync
+
+      RenderRepaintBoundary boundary = _previewContainerKey.currentContext!.findRenderObject() as RenderRepaintBoundary;
+      final image = await boundary.toImage(pixelRatio: 3.0);
+      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      final Uint8List pngBytes = byteData!.buffer.asUint8List();
+
+      final Directory dir = await getTemporaryDirectory();
+      final String path = '${dir.path}/compass_capture_${DateTime.now().millisecondsSinceEpoch}.png';
+      File(path).writeAsBytesSync(pngBytes);
+      final file = File(path);
+      Navigator.pop(context);
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (context) {
+            return SizedBox(width: MediaQuery.of(context).size.width, height: MediaQuery.of(context).size.height * 0.8, child: Image.file(file));
+          },
+        );
+        //     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Captured image saved to $path')));
+      }
+    } catch (e) {      Navigator.pop(context);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    }
+  }
 }
 
-// Custom painter for compass dial (tick marks and cardinal points)
+// Painter for compass tick marks
 class _CompassDialPainter extends CustomPainter {
   final bool small;
   _CompassDialPainter({this.small = false});
+
   @override
   void paint(Canvas canvas, Size size) {
     final Paint tickPaint = Paint()
@@ -363,42 +279,38 @@ class _CompassDialPainter extends CustomPainter {
     final Paint cardinalPaint = Paint()
       ..color = Colors.white
       ..strokeWidth = small ? 2 : 3;
+
     final double radius = size.width / 2;
     final center = Offset(radius, radius);
-    // Draw tick marks
+
     for (int i = 0; i < 360; i += 10) {
-      final double tickLength = (i % 90 == 0) ? (small ? 10 : 18) : (i % 30 == 0) ? (small ? 7 : 12) : (small ? 3 : 6);
+      final double tickLength = (i % 90 == 0)
+          ? (small ? 10 : 18)
+          : (i % 30 == 0)
+          ? (small ? 7 : 12)
+          : (small ? 3 : 6);
       final double angle = (i - 90) * math.pi / 180;
-      final Offset start = Offset(
-        center.dx + (radius - (small ? 12 : 24)) * math.cos(angle),
-        center.dy + (radius - (small ? 12 : 24)) * math.sin(angle),
-      );
-      final Offset end = Offset(
-        center.dx + (radius - (small ? 12 : 24) - tickLength) * math.cos(angle),
-        center.dy + (radius - (small ? 12 : 24) - tickLength) * math.sin(angle),
-      );
+      final Offset start = Offset(center.dx + (radius - 12) * math.cos(angle), center.dy + (radius - 12) * math.sin(angle));
+      final Offset end = Offset(center.dx + (radius - 12 - tickLength) * math.cos(angle), center.dy + (radius - 12 - tickLength) * math.sin(angle));
       canvas.drawLine(start, end, (i % 90 == 0) ? cardinalPaint : tickPaint);
     }
-    // Draw cardinal points
+
+    // Draw N/E/S/W
+    final List<String> cardinals = ['N', 'E', 'S', 'W'];
     final textStyle = TextStyle(
       color: Colors.white,
       fontSize: small ? 12 : 22,
       fontWeight: FontWeight.bold,
       shadows: [Shadow(blurRadius: 4, color: Colors.black45, offset: Offset(1, 1))],
     );
-    final List<String> cardinals = ['N', 'E', 'S', 'W'];
+
     for (int i = 0; i < 4; i++) {
       final double angle = (i * 90 - 90) * math.pi / 180;
-      final Offset pos = Offset(
-        center.dx + (radius - (small ? 24 : 48)) * math.cos(angle),
-        center.dy + (radius - (small ? 24 : 48)) * math.sin(angle),
-      );
+      final Offset pos = Offset(center.dx + (radius - 24) * math.cos(angle), center.dy + (radius - 24) * math.sin(angle));
+
       final textSpan = TextSpan(text: cardinals[i], style: textStyle);
-      final textPainter = TextPainter(
-        text: textSpan,
-        textAlign: TextAlign.center,
-        textDirection: TextDirection.ltr,
-      );
+      final textPainter = TextPainter(text: textSpan, textAlign: TextAlign.center, textDirection: TextDirection.ltr);
+
       textPainter.layout();
       canvas.save();
       canvas.translate(pos.dx - textPainter.width / 2, pos.dy - textPainter.height / 2);
@@ -409,24 +321,4 @@ class _CompassDialPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-
-// Add the image preview screen
-class ImagePreviewScreen extends StatelessWidget {
-  final String imagePath;
-  const ImagePreviewScreen({Key? key, required this.imagePath}) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Image Preview'),
-        backgroundColor: Colors.black,
-      ),
-      backgroundColor: Colors.black,
-      body: Center(
-        child: Image.file(File(imagePath)),
-      ),
-    );
-  }
 }
